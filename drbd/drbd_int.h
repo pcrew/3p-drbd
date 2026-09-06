@@ -2191,6 +2191,8 @@ enum drbd_ret_code drbd_create_device(struct drbd_config_context *adm_ctx,
 				      unsigned int minor,
 				      struct device_conf *device_conf,
 				      struct drbd_device **p_device);
+void drbd_unregister_device_prepare(struct drbd_device *device);
+void drbd_unregister_device_finish(struct drbd_device *device);
 void drbd_unregister_device(struct drbd_device *device);
 void drbd_reclaim_device(struct rcu_head *rp);
 void drbd_unregister_connection(struct drbd_connection *connection);
