@@ -1,3 +1,12 @@
+drbd (9.2.19~flant.15-1) unstable; urgency=medium
+
+  * Keep drbdsetup status/show responsive when down holds conf_update by
+    using trylock in dump paths and skipping busy resources.
+  * Split drbd_adm_down unregister flow into short conf_update prepare and
+    finish outside conf_update, so del_gendisk does not hold conf_update.
+
+ -- Flant <dmitry.lotakov@flant.com>  Mon, 31 Aug 2026 19:12:00 +0300
+
 drbd (9.2.19~flant.14-1) unstable; urgency=medium
 
   * Keep diskless Primary on current data generation UUID (adopt relayed P_UUIDS; refuse history rollback). Packaged as 9.2.19-flant.14

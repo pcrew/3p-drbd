@@ -1,6 +1,6 @@
 Name: drbd-kernel
 Summary: Kernel driver for DRBD
-Version: 9.2.19~flant.14
+Version: 9.2.19~flant.15
 Release: 1
 
 # always require a suitable userland
@@ -232,6 +232,10 @@ dkms remove -m $DKMS_NAME -v $DKMS_VERSION -q --all --rpm_safe_upgrade || :
 %endif
 
 %changelog
+* Mon Aug 31 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.15
+-  Keep drbdsetup status/show responsive when down holds conf_update by using trylock in dump paths and skipping busy resources.
+-  Split drbd_adm_down unregister flow into short conf_update prepare and finish outside conf_update, so del_gendisk does not hold conf_update.
+
 * Mon Aug 17 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.14
 -  Keep diskless Primary on current data generation UUID: adopt relayed P_UUIDS bumps as Primary and refuse applying a received new current UUID already in local history (avoids history-both split-brain). Packaged as 9.2.19-flant.14.
 
