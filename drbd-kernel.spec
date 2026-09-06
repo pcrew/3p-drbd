@@ -1,6 +1,6 @@
 Name: drbd-kernel
 Summary: Kernel driver for DRBD
-Version: 9.2.19~flant.13
+Version: 9.2.19~flant.14
 Release: 1
 
 # always require a suitable userland
@@ -232,6 +232,9 @@ dkms remove -m $DKMS_NAME -v $DKMS_VERSION -q --all --rpm_safe_upgrade || :
 %endif
 
 %changelog
+* Mon Aug 17 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.14
+-  Keep diskless Primary on current data generation UUID: adopt relayed P_UUIDS bumps as Primary and refuse applying a received new current UUID already in local history (avoids history-both split-brain). Packaged as 9.2.19-flant.14.
+
 * Mon Aug 17 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.13
 -  Fix double kref_put in drbd_adm_dump_connections when mutex_lock_interruptible is interrupted (e.g. SIGTERM during netlink dump): clear cb->args[0] on the error path and keep a kref on the connection dump cursor in cb->args[2]. Avoids refcount underflow / use-after-free. Packaged as 9.2.19-flant.13.
 
