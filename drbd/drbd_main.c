@@ -5529,6 +5529,36 @@ static void drbd_propagate_uuids(struct drbd_device *device, u64 nodes)
 	rcu_read_unlock();
 }
 
+/* True if val names a generation we already left behind: either pushed to
+ * history, or still pinned in a bitmap slot of a disconnected peer (which
+ * _drbd_uuid_push_history() deliberately keeps out of history_uuids).
+ * Mirror of peer_data_is_successor_of_mine(), local-md side.
+ */
+static bool __uuid_is_local_ancestor(struct drbd_device *device, u64 val)
+{
+	struct drbd_md *md = &device->ldev->md;
+	u64 val_base = val & ~UUID_PRIMARY;
+	int i;
+
+	if (!val_base || val == UUID_JUST_CREATED)
+		return false;
+
+	for (i = 0; i < ARRAY_SIZE(md->history_uuids); i++)
+		if (md->history_uuids[i] &&
+		    (md->history_uuids[i] & ~UUID_PRIMARY) == val_base)
+			return true;
+
+	for (i = 0; i < DRBD_NODE_ID_MAX; i++) {
+		if (i == md->node_id)
+			continue;
+		if (md->peers[i].bitmap_uuid &&
+		    (md->peers[i].bitmap_uuid & ~UUID_PRIMARY) == val_base)
+			return true;
+	}
+
+	return false;
+}
+
 void drbd_uuid_received_new_current(struct drbd_peer_device *from_pd, u64 val, u64 weak_nodes)
 {
 	struct drbd_device *device = from_pd->device;
@@ -5561,7 +5591,35 @@ void drbd_uuid_received_new_current(struct drbd_peer_device *from_pd, u64 val, u
 
 	if (set_current) {
 		u64 old_current = device->ldev->md.current_uuid;
+		u64 val_base = val & ~UUID_PRIMARY;
 		u64 upd;
+
+		if (!val_base || val == UUID_JUST_CREATED) {
+			spin_unlock_irq(&device->ldev->md.uuid_lock);
+			up_write(&device->uuid_sem);
+			drbd_err_ratelimit(from_pd,
+					   "ignoring invalid received current UUID: %016llX\n",
+					   (unsigned long long)val);
+			return;
+		}
+
+		/* A Primary whose exposed_data_uuid lagged can re-advertise an
+		 * older generation. Applying it would rotate our current into
+		 * history and later yield history-both split-brain against peers
+		 * that kept the newer UUID -- even when data bits are identical.
+		 * Refuse if the offered UUID is already a local ancestor
+		 * (history_uuids or peers[].bitmap_uuid).
+		 */
+		if (__uuid_is_local_ancestor(device, val)) {
+			spin_unlock_irq(&device->ldev->md.uuid_lock);
+			up_write(&device->uuid_sem);
+			drbd_err_ratelimit(from_pd,
+					   "ignoring received new current UUID: %016llX "
+					   "(already a local ancestor; current %016llX)\n",
+					   (unsigned long long)val,
+					   (unsigned long long)old_current);
+			return;
+		}
 
 		if (device->disk_state[NOW] == D_UP_TO_DATE)
 			recipients |= rotate_current_into_bitmap(device, weak_nodes, dagtag);

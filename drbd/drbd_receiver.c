@@ -6702,16 +6702,32 @@ static int __receive_uuids(struct drbd_peer_device *peer_device, u64 node_mask)
 		put_ldev(device);
 	} else if (device->disk_state[NOW] < D_INCONSISTENT && repl_state >= L_ESTABLISHED &&
 		   peer_device->disk_state[NOW] == D_UP_TO_DATE && !uuid_match &&
+		   /* Diskless must adopt a peer's current UUID even as Primary:
+		    * the direct P_CURRENT_UUID path already does (receive_current_uuid),
+		    * but the relayed P_UUIDS path used to require Secondary (or
+		    * two_primaries+NEW_CUR_UUID) and silently left exposed_data_uuid stale.
+		    * NEW_CUR_UUID must not be consumed in this || (short-circuit on
+		    * D_DISKLESS); clear it explicitly below when adoption replaces
+		    * the old two_primaries arm.
+		    */
 		   (resource->role[NOW] == R_SECONDARY ||
+		    device->disk_state[NOW] == D_DISKLESS ||
 		    (two_primaries_allowed && test_and_clear_bit(NEW_CUR_UUID, &device->flags)))) {
 
 		write_lock_irq(&resource->state_rwlock);
+		/* Adopting the peer's generation satisfies a pending
+		 * NEW_CUR_UUID obligation (pre-existing behaviour of the
+		 * two_primaries arm above): do not additionally self-bump on
+		 * the next ap_bio and discard what we just adopted. */
+		if (device->disk_state[NOW] == D_DISKLESS &&
+		    resource->role[NOW] != R_SECONDARY && two_primaries_allowed)
+			clear_bit(NEW_CUR_UUID, &device->flags);
 		if (resource->remote_state_change) {
 			drbd_info(peer_device, "Delaying update of exposed data uuid\n");
 			device->next_exposed_data_uuid = peer_device->current_uuid;
 		} else {
 			updated_uuids =
-				drbd_uuid_set_exposed(device, peer_device->current_uuid, false);
+				drbd_uuid_set_exposed(device, peer_device->current_uuid, true);
 		}
 		write_unlock_irq(&resource->state_rwlock);
 
