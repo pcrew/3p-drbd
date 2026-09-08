@@ -2,6 +2,16 @@ Latest:
 ------
  For even more detail, use "git log" or visit https://github.com/LINBIT/drbd/commits/master.
 
+9.2.19-flant.15 (api:genl2/proto:86-101,118-124/transport:21)
+--------
+ * Do not block dump_connections/dump_paths on resource->conf_update:
+   use mutex_trylock and skip busy resources so drbdsetup status/show
+   keeps observability while down is in progress.
+ * Split drbd_adm_down device unregister into short conf_update
+   prepare phase and finish phase outside conf_update, so del_gendisk
+   does not keep conf_update locked for the whole duration.
+
+
 9.2.19-flant.14 (api:genl2/proto:86-101,118-124/transport:21)
 --------
  * Keep diskless Primary on the current data generation UUID: adopt relayed

@@ -6358,6 +6358,7 @@ static int drbd_adm_dump_connections(struct sk_buff *skb, struct netlink_callbac
 	struct drbd_genlmsghdr *dh;
 	struct connection_info connection_info;
 	struct connection_statistics connection_statistics;
+	bool conf_locked = false;
 
 	/* args[3]: dump aborted (e.g. interruptible lock failed). Returning 0
 	 * ends the dump (NLMSG_DONE → done()). Do not reuse args[1]:
@@ -6391,23 +6392,17 @@ static int drbd_adm_dump_connections(struct sk_buff *skb, struct netlink_callbac
 
     next_resource:
 	rcu_read_unlock();
-	if (mutex_lock_interruptible(&resource->conf_update)) {
-		kref_debug_put(&resource->kref_debug, 6);
-		kref_put(&resource->kref, drbd_destroy_resource);
-		resource = NULL;
-		/* Must clear: done() would otherwise double-put via
-		 * put_resource_in_arg0 (SIGTERM during dump → UAF hang). */
-		cb->args[0] = 0;
-		/* Drop connection cursor and mark dump finished. Otherwise a
-		 * non-fatal signal leaves args[1]/args[2] set, dump continues
-		 * after ERR_INTR (skb->len > 0), restarts from resource #1 with
-		 * a stale cursor → skipped/duplicated connections in show. */
-		put_connection_in_arg2(cb, 20);
-		cb->args[3] = 1;
-		retcode = ERR_INTR;
+	/*
+	 * Do not block status/show behind a long-held conf_update (e.g. down
+	 * stuck in del_gendisk while a CSI bind-mount still holds /dev/drbdN).
+	 * Skipping this resource is better than hanging forever in D-state.
+	 */
+	if (!mutex_trylock(&resource->conf_update)) {
+		conf_locked = false;
 		rcu_read_lock();
-		goto put_result;
+		goto no_more_connections;
 	}
+	conf_locked = true;
 	rcu_read_lock();
 	if (cb->args[2]) {
 		struct drbd_connection *prev =
@@ -6440,7 +6435,10 @@ no_more_connections:
 
 found_resource:
 	list_for_each_entry_continue_rcu(next_resource, &drbd_resources, resources) {
-		mutex_unlock(&resource->conf_update);
+		if (conf_locked) {
+			mutex_unlock(&resource->conf_update);
+			conf_locked = false;
+		}
 		kref_debug_put(&resource->kref_debug, 6);
 		kref_put(&resource->kref, drbd_destroy_resource);
 		resource = next_resource;
@@ -6489,7 +6487,7 @@ put_result:
 
 out:
 	rcu_read_unlock();
-	if (resource)
+	if (resource && conf_locked)
 		mutex_unlock(&resource->conf_update);
 	if (err)
 		return err;
@@ -6693,6 +6691,7 @@ static int drbd_adm_dump_paths(struct sk_buff *skb, struct netlink_callback *cb)
 	struct drbd_path *path = NULL;
 	int err = 0, retcode;
 	struct drbd_genlmsghdr *dh;
+	bool conf_locked = false;
 
 	rcu_read_lock();
 	resource = (struct drbd_resource *)cb->args[0];
@@ -6720,7 +6719,13 @@ static int drbd_adm_dump_paths(struct sk_buff *skb, struct netlink_callback *cb)
 
 next_resource:
 	rcu_read_unlock();
-	mutex_lock(&resource->conf_update);
+	/* Same rationale as dump_connections: never sleep on conf_update here. */
+	if (!mutex_trylock(&resource->conf_update)) {
+		conf_locked = false;
+		rcu_read_lock();
+		goto no_more_paths;
+	}
+	conf_locked = true;
 	rcu_read_lock();
 	if (cb->args[2]) {
 		for_each_connection_rcu(connection, resource) {
@@ -6766,7 +6771,10 @@ no_more_paths:
 
 found_resource:
 	list_for_each_entry_continue_rcu(next_resource, &drbd_resources, resources) {
-		mutex_unlock(&resource->conf_update);
+		if (conf_locked) {
+			mutex_unlock(&resource->conf_update);
+			conf_locked = false;
+		}
 		kref_debug_put(&resource->kref_debug, 10);
 		kref_put(&resource->kref, drbd_destroy_resource);
 		resource = next_resource;
@@ -6804,7 +6812,7 @@ put_result:
 
 out:
 	rcu_read_unlock();
-	if (resource)
+	if (resource && conf_locked)
 		mutex_unlock(&resource->conf_update);
 	if (err)
 		return err;
@@ -7347,7 +7355,14 @@ static enum drbd_ret_code adm_del_minor(struct drbd_device *device)
 	 */
 	drbd_flush_workqueue(&resource->work);
 
-	drbd_unregister_device(device);
+	/*
+	 * Keep conf_update held only across the object model update.
+	 * The potentially blocking del_gendisk path runs outside.
+	 */
+	mutex_lock(&resource->conf_update);
+	drbd_unregister_device_prepare(device);
+	mutex_unlock(&resource->conf_update);
+	drbd_unregister_device_finish(device);
 
 	mutex_lock(&notification_mutex);
 	for_each_peer_device_ref(peer_device, im, device)
@@ -7482,9 +7497,7 @@ static int drbd_adm_down(struct sk_buff *skb, struct genl_info *info)
 		kref_get(&device->kref);
 		rcu_read_unlock();
 		retcode = adm_detach(device, 0, 0, "down", adm_ctx.reply_skb);
-		mutex_lock(&resource->conf_update);
 		ret = adm_del_minor(device);
-		mutex_unlock(&resource->conf_update);
 		kref_put(&device->kref, drbd_destroy_device);
 		if (retcode < SS_SUCCESS || retcode > NO_ERROR) {
 			drbd_msg_put_info(adm_ctx.reply_skb, "failed to detach");

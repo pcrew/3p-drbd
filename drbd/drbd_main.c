@@ -4423,15 +4423,7 @@ out_no_disk:
 	return err;
 }
 
-/**
- * drbd_unregister_device()  -  make a device "invisible"
- * @device: DRBD device to unregister
- *
- * Remove the device from the drbd object model and unregister it in the
- * kernel.  Keep reference counts on device->kref; they are dropped in
- * drbd_reclaim_device().
- */
-void drbd_unregister_device(struct drbd_device *device)
+void drbd_unregister_device_prepare(struct drbd_device *device)
 {
 	struct drbd_resource *resource = device->resource;
 	struct drbd_connection *connection;
@@ -4450,6 +4442,10 @@ void drbd_unregister_device(struct drbd_device *device)
 	for_each_peer_device(peer_device, device)
 		drbd_debugfs_peer_device_cleanup(peer_device);
 	drbd_debugfs_device_cleanup(device);
+}
+
+void drbd_unregister_device_finish(struct drbd_device *device)
+{
 	del_gendisk(device->vdisk);
 
 	destroy_workqueue(device->submit_conflict.wq);
@@ -4457,6 +4453,20 @@ void drbd_unregister_device(struct drbd_device *device)
 	destroy_workqueue(device->submit.wq);
 	device->submit.wq = NULL;
 	timer_shutdown_sync(&device->request_timer);
+}
+
+/**
+ * drbd_unregister_device()  -  make a device "invisible"
+ * @device: DRBD device to unregister
+ *
+ * Remove the device from the drbd object model and unregister it in the
+ * kernel. Keep reference counts on device->kref; they are dropped in
+ * drbd_reclaim_device().
+ */
+void drbd_unregister_device(struct drbd_device *device)
+{
+	drbd_unregister_device_prepare(device);
+	drbd_unregister_device_finish(device);
 }
 
 void drbd_reclaim_device(struct rcu_head *rp)
