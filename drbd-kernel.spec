@@ -1,6 +1,6 @@
 Name: drbd-kernel
 Summary: Kernel driver for DRBD
-Version: 9.2.19~flant.16
+Version: 9.2.19~flant.17
 Release: 1
 
 # always require a suitable userland
@@ -232,6 +232,9 @@ dkms remove -m $DKMS_NAME -v $DKMS_VERSION -q --all --rpm_safe_upgrade || :
 %endif
 
 %changelog
+* Wed Sep 16 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.17
+-  Prefer disk-state resync direction when UUID handshake would sync from a non-UpToDate node onto UpToDate (bitmap-peer-other / history-peer invert).
+
 * Mon Sep 14 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.16
 -  Widen local_disk_may_be_outdated() vs LINBIT 772e5b21: allow Secondary outdate whenever no diskful Primary is Connected (not only on connect to Diskless Primary). Fixes SS_CONNECTED_OUTDATES FATAL 2PC / UUID fork after losing a diskful Primary while a Diskless Primary remains Connected (incl. hardcut).
 

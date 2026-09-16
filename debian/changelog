@@ -1,3 +1,10 @@
+drbd (9.2.19~flant.17-1) unstable; urgency=medium
+
+  * Prefer disk-state resync direction when UUID rules would sync from
+    a non-UpToDate node onto UpToDate (avoid invert / quorum loss).
+
+ -- Flant <dmitry.lotakov@flant.com>  Wed, 16 Sep 2026 00:00:00 +0300
+
 drbd (9.2.19~flant.16-1) unstable; urgency=medium
 
   * Widen local_disk_may_be_outdated() vs LINBIT 772e5b21: allow
