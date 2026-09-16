@@ -5300,11 +5300,29 @@ static void disk_states_to_strategy(struct drbd_peer_device *peer_device,
 			*strategy == SYNC_TARGET_IF_BOTH_FAILED ||
 			*strategy == SYNC_SOURCE_IF_BOTH_FAILED;
 
+		bool local_worse_than_utd_peer =
+			(disk_state <= D_OUTDATED) && (peer_disk_state == D_UP_TO_DATE);
+		bool peer_worse_than_utd_local =
+			(peer_disk_state <= D_OUTDATED) && (disk_state == D_UP_TO_DATE);
+		bool source_has_worse_data =
+			(strategy_descriptor(*strategy).is_sync_source &&
+			 local_worse_than_utd_peer) ||
+			(strategy_descriptor(*strategy).is_sync_target &&
+			 peer_worse_than_utd_local);
+
 		decide_based_on_dstates =
 			dstates_want_resync &&
 			(((*rule == RULE_RECONNECTED || *rule == RULE_LOST_QUORUM ||
 			   *rule == RULE_BOTH_OFF) && resync_direction_arbitrary) ||
-			 (*strategy == NO_SYNC && either_inconsistent));
+			 (*strategy == NO_SYNC && either_inconsistent) ||
+			 source_has_worse_data);
+
+		if (decide_based_on_dstates && source_has_worse_data)
+			drbd_warn(peer_device,
+				  "UUID rule %s picked sync source with worse disk state (%s/%s), overriding strategy %s by disk states\n",
+				  drbd_sync_rule_str(*rule),
+				  drbd_disk_str(disk_state), drbd_disk_str(peer_disk_state),
+				  strategy_descriptor(*strategy).name);
 
 		prefer_local = disk_state > peer_disk_state;
 		/* RULE_BOTH_OFF means that the current UUIDs are equal. The decision
