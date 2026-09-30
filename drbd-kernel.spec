@@ -1,6 +1,6 @@
 Name: drbd-kernel
 Summary: Kernel driver for DRBD
-Version: 9.2.19~flant.17
+Version: 9.2.19~flant.18
 Release: 1
 
 # always require a suitable userland
@@ -232,6 +232,9 @@ dkms remove -m $DKMS_NAME -v $DKMS_VERSION -q --all --rpm_safe_upgrade || :
 %endif
 
 %changelog
+* Thu Oct 01 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.18
+-  Hold kref on dump_resources cursor so status/show cannot UAF resource->name; skip dying objects in remember_state_change; reject out-of-range TWOPC node ids before NODE_MASK.
+
 * Wed Sep 16 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.17
 -  Prefer disk-state resync direction when UUID handshake would sync from a non-UpToDate node onto UpToDate (bitmap-peer-other / history-peer invert).
 
