@@ -3010,6 +3010,18 @@ static inline struct net *drbd_net_assigned_to_connection(struct drbd_connection
 
 #define NODE_MASK(id) ((u64)1 << (id))
 
+static inline bool drbd_node_id_valid(int id)
+{
+	return id >= 0 && id < DRBD_NODE_ID_MAX;
+}
+
+static inline u64 node_id_to_mask(int id)
+{
+	if (!drbd_node_id_valid(id))
+		return 0;
+	return NODE_MASK(id);
+}
+
 static inline void drbd_list_del_resync_request(struct drbd_peer_request *peer_req)
 {
 	struct drbd_peer_device *peer_device = peer_req->peer_device;

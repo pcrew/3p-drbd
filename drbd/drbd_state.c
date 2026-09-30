@@ -352,7 +352,10 @@ struct drbd_state_change *remember_state_change(struct drbd_resource *resource, 
 	if (!state_change)
 		return NULL;
 
-	kref_get(&resource->kref);
+	if (!kref_get_unless_zero(&resource->kref)) {
+		kfree(state_change);
+		return NULL;
+	}
 	kref_debug_get(&resource->kref_debug, 5);
 	state_change->resource->resource = resource;
 	memcpy(state_change->resource->role,
@@ -371,7 +374,11 @@ struct drbd_state_change *remember_state_change(struct drbd_resource *resource, 
 	idr_for_each_entry(&resource->devices, device, vnr) {
 		struct drbd_peer_device *peer_device;
 
-		kref_get(&device->kref);
+		if (!kref_get_unless_zero(&device->kref)) {
+			peer_device_state_change += ocnt.n_connections;
+			device_state_change++;
+			continue;
+		}
 		kref_debug_get(&device->kref_debug, 2);
 		device_state_change->device = device;
 		memcpy(device_state_change->disk_state,
@@ -385,6 +392,10 @@ struct drbd_state_change *remember_state_change(struct drbd_resource *resource, 
 			peer_device = conn_peer_device(connection, device->vnr);
 
 			peer_device_state_change->peer_device = peer_device;
+			if (!peer_device) {
+				peer_device_state_change++;
+				continue;
+			}
 			memcpy(peer_device_state_change->disk_state,
 			       peer_device->disk_state, sizeof(peer_device->disk_state));
 			memcpy(peer_device_state_change->repl_state,
@@ -416,8 +427,16 @@ struct drbd_state_change *remember_state_change(struct drbd_resource *resource, 
 	path_state = state_change->paths;
 	for_each_connection(connection, resource) {
 		struct drbd_path *path;
+		unsigned int n_paths = 0;
 
-		kref_get(&connection->kref);
+		list_for_each_entry(path, &connection->transport.paths, list)
+			n_paths++;
+
+		if (!kref_get_unless_zero(&connection->kref)) {
+			path_state += n_paths;
+			connection_state_change++;
+			continue;
+		}
 		kref_debug_get(&connection->kref_debug, 7);
 		connection_state_change->connection = connection;
 		memcpy(connection_state_change->cstate,
@@ -3644,6 +3663,8 @@ static void notify_state_change(struct drbd_state_change *state_change)
 		struct drbd_connection_state_change *connection_state_change =
 				&state_change->connections[n_connection];
 
+		if (!connection_state_change->connection)
+			continue;
 		if (HAS_CHANGED(connection_state_change->peer_role) ||
 		    HAS_CHANGED(connection_state_change->cstate))
 			REMEMBER_STATE_CHANGE(notify_connection_state_change,
@@ -3653,6 +3674,9 @@ static void notify_state_change(struct drbd_state_change *state_change)
 	for (n_device = 0; n_device < state_change->n_devices; n_device++) {
 		struct drbd_device_state_change *device_state_change =
 			&state_change->devices[n_device];
+
+		if (!device_state_change->device)
+			continue;
 
 		if (HAS_CHANGED(device_state_change->disk_state) ||
 		    HAS_CHANGED(device_state_change->have_quorum))
@@ -3671,9 +3695,12 @@ static void notify_state_change(struct drbd_state_change *state_change)
 		    HAS_CHANGED(p->resync_susp_peer) ||
 		    HAS_CHANGED(p->resync_susp_dependency) ||
 		    HAS_CHANGED(p->resync_susp_other_c) ||
-		    HAS_CHANGED(p->resync_susp_max_parallel))
+		    HAS_CHANGED(p->resync_susp_max_parallel)) {
+			if (!p->peer_device)
+				continue;
 			REMEMBER_STATE_CHANGE(notify_peer_device_state_change,
 					      p, NOTIFY_CHANGE);
+		}
 	}
 
 	FINAL_STATE_CHANGE(NOTIFY_CHANGE);
@@ -3694,7 +3721,7 @@ static void send_role_to_all_peers(struct drbd_state_change *state_change)
 		struct drbd_connection *connection = connection_state_change->connection;
 		enum drbd_conn_state new_cstate = connection_state_change->cstate[NEW];
 
-		if (new_cstate < C_CONNECTED)
+		if (!connection || new_cstate < C_CONNECTED)
 			continue;
 
 		if (connection->agreed_pro_version < 110) {
@@ -3708,6 +3735,8 @@ static void send_role_to_all_peers(struct drbd_state_change *state_change)
 				union drbd_state state =
 					state_change_word(state_change, n_device, n_connection, NEW);
 
+				if (!peer_device)
+					continue;
 				drbd_send_state(peer_device, state);
 			}
 		} else {
@@ -3731,6 +3760,8 @@ static void send_new_state_to_all_peer_devices(struct drbd_state_change *state_c
 		struct drbd_peer_device *peer_device = peer_device_state_change->peer_device;
 		union drbd_state new_state = state_change_word(state_change, n_device, n_connection, NEW);
 
+		if (!peer_device)
+			continue;
 		if (new_state.conn >= C_CONNECTED)
 			drbd_send_state(peer_device, new_state);
 	}
@@ -3824,6 +3855,9 @@ static void check_may_resume_io_after_fencing(struct drbd_state_change *state_ch
 	struct drbd_peer_device *peer_device;
 	unsigned long irq_flags;
 	int vnr, n_device;
+
+	if (!connection)
+		return;
 
 	for (n_device = 0; n_device < state_change->n_devices; n_device++) {
 		struct drbd_peer_device_state_change *peer_device_state_change =
@@ -4008,7 +4042,7 @@ static int w_after_state_change(struct drbd_work *w, int unused)
 		struct drbd_device_state_change *device_state_change = &state_change->devices[n_device];
 		struct drbd_device *device = device_state_change->device;
 		enum drbd_disk_state *disk_state = device_state_change->disk_state;
-		bool have_ldev = extra_ldev_ref_for_after_state_chg(disk_state);
+		bool have_ldev;
 		bool *have_quorum = device_state_change->have_quorum;
 		bool effective_disk_size_determined = false;
 		bool device_stable[2], resync_target[2];
@@ -4017,6 +4051,11 @@ static int w_after_state_change(struct drbd_work *w, int unused)
 		bool some_peer_demoted = false;
 		bool new_current_uuid = false;
 		enum which_state which;
+
+		if (!device)
+			continue;
+
+		have_ldev = extra_ldev_ref_for_after_state_chg(disk_state);
 
 		for (which = OLD; which <= NEW; which++) {
 			device_stable[which] = calc_device_stable(state_change, n_device, which);
@@ -4035,6 +4074,9 @@ static int w_after_state_change(struct drbd_work *w, int unused)
 			struct drbd_peer_device *peer_device = peer_device_state_change->peer_device;
 			enum drbd_disk_state *peer_disk_state = peer_device_state_change->disk_state;
 			enum drbd_repl_state *repl_state = peer_device_state_change->repl_state;
+
+			if (!peer_device)
+				continue;
 
 			if ((repl_state[OLD] == L_SYNC_TARGET || repl_state[OLD] == L_PAUSED_SYNC_T) &&
 			    repl_state[NEW] == L_ESTABLISHED)
@@ -4086,6 +4128,9 @@ static int w_after_state_change(struct drbd_work *w, int unused)
 			union drbd_state new_state =
 				state_change_word(state_change, n_device, n_connection, NEW);
 			bool send_uuids, send_state = false;
+
+			if (!connection || !peer_device)
+				continue;
 
 			/* In case we finished a resync as resync-target update all neighbors
 			 * about having a bitmap_uuid of 0 towards the previous sync-source.
@@ -4538,6 +4583,9 @@ static int w_after_state_change(struct drbd_work *w, int unused)
 		enum drbd_conn_state *cstate = connection_state_change->cstate;
 		bool *susp_fen = connection_state_change->susp_fen;
 		enum drbd_fencing_policy fencing_policy;
+
+		if (!connection)
+			continue;
 
 		if (connection_state_change->peer_role[NEW] == R_PRIMARY && send_flush_requests &&
 				connection->agreed_pro_version >= 123) {
@@ -6451,6 +6499,9 @@ static bool calc_data_accessible(struct drbd_state_change *state_change, int n_d
 		struct drbd_peer_device *peer_device = peer_device_state_change->peer_device;
 		enum drbd_disk_state *peer_disk_state = peer_device_state_change->disk_state;
 		struct net_conf *nc;
+
+		if (!peer_device)
+			continue;
 
 		rcu_read_lock();
 		nc = rcu_dereference(peer_device->connection->transport.net_conf);

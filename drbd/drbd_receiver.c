@@ -7644,6 +7644,15 @@ static int receive_twopc(struct drbd_connection *connection, struct packet_info 
 		reply.initiator_node_id = be32_to_cpu(p->u32_initiator_node_id);
 		reply.target_node_id = be32_to_cpu(p->u32_target_node_id);
 	}
+
+	if (!drbd_node_id_valid(reply.initiator_node_id) ||
+	    (reply.target_node_id != -1 && !drbd_node_id_valid(reply.target_node_id))) {
+		drbd_err(connection,
+			 "Ignoring TWOPC with out-of-range node id (initiator %d target %d)\n",
+			 reply.initiator_node_id, reply.target_node_id);
+		return -EIO;
+	}
+
 	reply.reachable_nodes = directly_connected_nodes(resource, NOW) |
 				NODE_MASK(resource->res_opts.node_id);
 
@@ -8037,7 +8046,7 @@ retry:
 	}
 
 	if (state_change->mask.conn == conn_MASK) {
-		u64 m = NODE_MASK(reply->initiator_node_id);
+		u64 m = node_id_to_mask(reply->initiator_node_id);
 
 		if (state_change->val.conn == C_CONNECTED) {
 			reply->reachable_nodes |= m;
@@ -8130,8 +8139,8 @@ retry:
 			if (state_change->mask.conn == conn_MASK &&
 			    state_change->val.conn == C_CONNECTED) {
 				/* Add nodes connecting "far away" to members */
-				u64 add_mask = NODE_MASK(reply->initiator_node_id) |
-					NODE_MASK(reply->target_node_id);
+				u64 add_mask = node_id_to_mask(reply->initiator_node_id) |
+					node_id_to_mask(reply->target_node_id);
 
 				resource->members |= add_mask;
 			}
