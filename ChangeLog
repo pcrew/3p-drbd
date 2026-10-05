@@ -2,6 +2,13 @@ Latest:
 ------
  For even more detail, use "git log" or visit https://github.com/LINBIT/drbd/commits/master.
 
+9.2.19-flant.17 (api:genl2/proto:86-101,118-124/transport:21)
+--------
+ * Prefer disk-state direction when UUID handshake would make a
+   non-UpToDate node the sync source against an UpToDate peer
+   (bitmap-peer-other / history-peer invert).
+
+
 9.2.19-flant.16 (api:genl2/proto:86-101,118-124/transport:21)
 --------
  * Widen local_disk_may_be_outdated() vs LINBIT 772e5b21: allow a
