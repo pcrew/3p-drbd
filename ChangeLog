@@ -2,6 +2,14 @@ Latest:
 ------
  For even more detail, use "git log" or visit https://github.com/LINBIT/drbd/commits/master.
 
+9.2.19-flant.18 (api:genl2/proto:86-101,118-124/transport:21)
+--------
+ * Hold a kref on the GET_RESOURCES netlink dump cursor and add .done,
+   so drbdsetup status/show cannot strlen a freed resource->name.
+ * Use kref_get_unless_zero in remember_state_change and skip NULL
+   peer_device slots; reject out-of-range TWOPC node ids before NODE_MASK.
+
+
 9.2.19-flant.17 (api:genl2/proto:86-101,118-124/transport:21)
 --------
  * Prefer disk-state direction when UUID handshake would make a

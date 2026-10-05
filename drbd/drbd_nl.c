@@ -72,6 +72,7 @@ static int drbd_adm_forget_peer(struct sk_buff *skb, struct genl_info *info);
 static int drbd_adm_rename_resource(struct sk_buff *skb, struct genl_info *info);
 /* .dumpit */
 static int drbd_adm_dump_resources(struct sk_buff *skb, struct netlink_callback *cb);
+static int drbd_adm_dump_resources_done(struct netlink_callback *cb);
 static int drbd_adm_dump_devices(struct sk_buff *skb, struct netlink_callback *cb);
 static int drbd_adm_dump_devices_done(struct netlink_callback *cb);
 static int drbd_adm_dump_connections(struct sk_buff *skb, struct netlink_callback *cb);
@@ -6041,7 +6042,7 @@ static int nla_put_drbd_cfg_context(struct sk_buff *skb,
 		goto nla_put_failure;
 	if (device)
 		nla_put_u32(skb, T_ctx_volume, device->vnr);
-	if (resource)
+	if (resource && resource->name)
 		nla_put_string(skb, T_ctx_resource_name, resource->name);
 	if (connection) {
 		nla_put_u32(skb, T_ctx_peer_node_id, connection->peer_node_id);
@@ -6082,6 +6083,9 @@ static struct nlattr *find_cfg_context_attr(const struct nlmsghdr *nlh, int attr
 }
 
 static void resource_to_info(struct resource_info *, struct drbd_resource *);
+static int put_resource_in_arg0(struct netlink_callback *cb, int holder_nr);
+static void get_resource_in_arg0(struct netlink_callback *cb,
+				 struct drbd_resource *resource, int holder_nr);
 
 static int drbd_adm_dump_resources(struct sk_buff *skb, struct netlink_callback *cb)
 {
@@ -6096,6 +6100,7 @@ static int drbd_adm_dump_resources(struct sk_buff *skb, struct netlink_callback 
 		for_each_resource_rcu(resource, &drbd_resources)
 			if (resource == (struct drbd_resource *)cb->args[0])
 				goto found_resource;
+		put_resource_in_arg0(cb, 12);
 		err = 0;  /* resource was probably deleted */
 		goto out;
 	}
@@ -6132,7 +6137,7 @@ put_result:
 	err = resource_statistics_to_skb(skb, &resource_statistics, !capable(CAP_SYS_ADMIN));
 	if (err)
 		goto out;
-	cb->args[0] = (long)resource;
+	get_resource_in_arg0(cb, resource, 12);
 	genlmsg_end(skb, dh);
 	err = 0;
 
@@ -6191,6 +6196,21 @@ static int put_resource_in_arg0(struct netlink_callback *cb, int holder_nr)
 	}
 
 	return 0;
+}
+
+static void get_resource_in_arg0(struct netlink_callback *cb,
+				 struct drbd_resource *resource,
+				 int holder_nr)
+{
+	put_resource_in_arg0(cb, holder_nr);
+	kref_get(&resource->kref);
+	kref_debug_get(&resource->kref_debug, holder_nr);
+	cb->args[0] = (long)resource;
+}
+
+static int drbd_adm_dump_resources_done(struct netlink_callback *cb)
+{
+	return put_resource_in_arg0(cb, 12);
 }
 
 /* Dump cursor in cb->args[2]: keep a kref so the connection cannot be freed

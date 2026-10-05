@@ -6421,6 +6421,8 @@ u64 directly_connected_nodes(struct drbd_resource *resource, enum which_state wh
 	for_each_connection_rcu(connection, resource) {
 		if (connection->cstate[which] < C_CONNECTED)
 			continue;
+		if (!drbd_node_id_valid(connection->peer_node_id))
+			continue;
 		directly_connected |= NODE_MASK(connection->peer_node_id);
 	}
 	rcu_read_unlock();
