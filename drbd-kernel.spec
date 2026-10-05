@@ -1,6 +1,6 @@
 Name: drbd-kernel
 Summary: Kernel driver for DRBD
-Version: 9.2.19~flant.15
+Version: 9.2.19~flant.16
 Release: 1
 
 # always require a suitable userland
@@ -232,6 +232,9 @@ dkms remove -m $DKMS_NAME -v $DKMS_VERSION -q --all --rpm_safe_upgrade || :
 %endif
 
 %changelog
+* Mon Sep 14 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.16
+-  Widen local_disk_may_be_outdated() vs LINBIT 772e5b21: allow Secondary outdate whenever no diskful Primary is Connected (not only on connect to Diskless Primary). Fixes SS_CONNECTED_OUTDATES FATAL 2PC / UUID fork after losing a diskful Primary while a Diskless Primary remains Connected (incl. hardcut).
+
 * Mon Aug 31 2026 Flant <dmitry.lotakov@flant.com> - 9.2.19~flant.15
 -  Keep drbdsetup status/show responsive when down holds conf_update by using trylock in dump paths and skipping busy resources.
 -  Split drbd_adm_down unregister flow into short conf_update prepare and finish outside conf_update, so del_gendisk does not hold conf_update.

@@ -2,6 +2,20 @@ Latest:
 ------
  For even more detail, use "git log" or visit https://github.com/LINBIT/drbd/commits/master.
 
+9.2.19-flant.16 (api:genl2/proto:86-101,118-124/transport:21)
+--------
+ * Widen local_disk_may_be_outdated() vs LINBIT 772e5b21: allow a
+   Secondary to become Outdated whenever no diskful Primary is still
+   Connected (not only on L_OFF→L_ESTABLISHED to a Diskless Primary).
+   Fixes SS_CONNECTED_OUTDATES (-6) FATAL 2PC / UUID forks when a
+   diskful Primary is lost while a Diskless Primary remains Connected
+   (incl. hardcut / do_twopc_after_lost_peer, where the lost peer is
+   already L_OFF). Manual/automatic outdate under an actively writing
+   Diskless Primary also succeeds; write path still uses P_OUT_OF_SYNC,
+   last UpToDate is refused via SS_NO_UP_TO_DATE_DISK, Outdated peers
+   still count for quorum.
+
+
 9.2.19-flant.15 (api:genl2/proto:86-101,118-124/transport:21)
 --------
  * Do not block dump_connections/dump_paths on resource->conf_update:
